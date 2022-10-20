@@ -7,10 +7,10 @@
       apt:
         name: "*"
         state: latest
-      when: "ansible_pkg_mgr": "apt"
+      when: ansible_pkg_mgr == "apt"
     
     - name: Update all dnf packages to their latest version
       dnf:
         name: "*"
         state: latest
-      when: "ansible_pkg_mgr": "dnf"
+      when: ansible_pkg_mgr ==  "dnf"
