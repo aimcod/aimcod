@@ -7,15 +7,6 @@
   tasks:
 
 
-#this zabbix agent requires systemd. immediatelly skip hosts that do not qualify
-    - name: Immediately disqualify unfit hosts
-      meta: end_host
-      when: 
-        - ansible_distribution_file_variety == "Amazon" and ansible_distribution_major_version != "2"
-        - ansible_os_family == "RedHat" and (ansible_distribution_major_version != "7" or ansible_distribution_major_version != "8")
-    - debug:
-        msg: "{{ansible_distribution_file_variety}} {{ansible_distribution_major_version}}"
-
     - name: check if Zabbix Agent2 was already configured
       find:  
         paths: /etc/zabbix/
@@ -25,103 +16,52 @@
     - name: Check if config contains correct address string
       lineinfile:
         path: /etc/zabbix/zabbix_agent2.conf
-        regexp: '^servername'
+        regexp: '^ServerActive=loki'
         line: ""
       check_mode: yes
       register: config
       when: zabbixPresent.matched > 0 and zabbixPresent.matched is defined
 
-#    - name: End the play for hosts are already setup
-#      meta: end_host
-#      when:
-#        - zabbixPresent.matched > 0 and zabbixPresent.matched is defined and config.changed == true
+    - name: End the play for hosts are already setup
+      meta: end_host
+      when:
+        - zabbixPresent.matched > 0 and zabbixPresent.matched is defined and config.changed == true
 
+    - name: Download Zabbix Repo for debian systems
+      ansible.builtin.get_url:
+      url: https://repo.zabbix.com/zabbix/6.2/ubuntu/pool/main/z/zabbix-release/zabbix-release_6.2-2%2Bubuntu22.04_all.deb
+        dest: /home/andrei/zabbix-release_622.deb
+        mode: '0440'
+      when: ansible_distribution_version == "22.04"
 
-    - name: Install libpcre dependency on RHEL 7
-      shell: rpm -Uvh http://mirror.centos.org/centos/7/os/x86_64/Packages/pcre2-10.23-2.el7.x86_64.rpm
-      register: libpcre
-      failed_when:  
-        - '"already installed" not in libpcre.stderr' # when upgrading/installing packages we get lots of warnings
-        - '"warning" not in libpcre.stderr' # and other messages ^ that fail the task
-        - '"listed more than once" not in libpcre.stderr' # so we filter them out. task might still fail due to other messages still.
-        - libpcre.stderr != ""
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7" or ansible_default_ipv4.address is match("10.*")
-
-
-    - name: enable Zabbix Repo on RHEL 8
-      shell: rpm -Uvh https://repo.zabbix.com/zabbix/6.2/rhel/8/x86_64/zabbix-release-6.2-1.el8.noarch.rpm & yum clean all
+        
+    - name: Install a .deb package from the internet
+      apt:
+        deb: /home/andrei/zabbix-release_622.deb
+      when: ansible_distribution_version == "22.04"
+      
+    - name: enable Zabbix Repo on RHEL 9 or Fedora 36
+      shell: rpm -Uvh https://repo.zabbix.com/zabbix/6.2/rhel/9/x86_64/zabbix-release-6.2-3.el9.noarch.rpm & yum clean all
       register: repoState
       failed_when:  
         - '"already installed" not in repoState.stderr'
         - '"warning" not in repoState.stderr'
         - '"listed more than once" not in repoState.stderr'
         - repoState.stderr != ""        
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "8"
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "9" || ansible_distribution_major_version == "36"
       ignore_errors: yes
-
-    # On CentOS, the CentOS - Base, Appstream and pretty much all the CentOS ones, are dead, so yum won't work due to this.
-    - name: Create sub-folder for the bad repos
-      file: 
-        path: /etc/yum.repos.d/reposGoneBad
-        state: directory
-        mode: '0755'
-
-    - name: Move repos to sub-folder because Copy above does not work :|
-      shell: rsync -hP /etc/yum.repos.d/Cent*.* /etc/yum.repos.d/reposGoneBad/ --remove-source-files
-      register: sync
-      failed_when: '"rsync: link_stat \"/etc/yum.repos.d/Cent*.*\" failed: No such file or directory" in sync.msg'
-      
-#rabbit-mq repo is also broken, so we simply skip it.
-    - name: Skip rabbit repo if it's breaking
-      shell: yum-config-manager --save --setopt=bintray-rabbitmq-server.skip_if_unavailable=true
-      ignore_errors: yes
-
+    
     - name: Update packages
-      yum:
+      dnf:
         name: "*"
         state: latest
-
-#zabbix40 and zabbix50 and other older packages are cached, so we remove everything, in order to succeed.
-    - name: Remove yum cache
-      file: 
-        path: "{{item}}"
-        state: absent
-      with_items:
-        - /var/cache/yum/
-        - /var/cache/dnf/
-      register: cacheGone
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7" or ansible_default_ipv4.address is match("10.*")
- 
-    - name: remove yum cache forcefully
-      shell: rm -rf /var/cache/yum/
-      register: removed
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7" or ansible_default_ipv4.address is match("10.*")
-
-#this is not necessary. i'm doing this because I accidentally installed zabbix epel 8 on some epel 7 hosts.
-    - name: remove Zabbix-Release 8 from RHEL7
-      yum:
-        name: zabbix-release
-        state: absent
-      register: removed
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7" or ansible_default_ipv4.address is match("10.*")
-
-    - name: Remove zabbix repo files
-      file: 
-        path: /etc/yum.repos.d/[Zz]abbix.*
-        state: absent
-      register: definitelyGoneNow
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7" or ansible_default_ipv4.address is match("10.*")
-      ignore_errors: yes
-
-    - name: enable Zabbix Repo on RHEL 7
-      shell: rpm -Uvh https://repo.zabbix.com/zabbix/6.2/rhel/7/x86_64/zabbix-release-6.2-1.el7.noarch.rpm & yum clean all
-      register: repoState
-      failed_when:  
-        - '"already installed" not in repoState.stderr'
-        - '"warning" not in repoState.stderr'
-        - '"listed more than once" not in repoState.stderr'
-        - repoState.stderr != ""
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "7" or ansible_default_ipv4.address is match("10.*")
+      when: ansible_pkg_mgr ==  "dnf"
+      
+     - name: Update packages
+      apt:
+        name: "*"
+        state: latest
+      when: ansible_pkg_mgr == "apt"
 
 
     - name: Install Zabbix Agent
@@ -150,46 +90,3 @@
         state: started
       with_items:
       - zabbix-agent2
-
-    - name: Get Ansible-AWX host for rename operation
-      uri:
-       url: "{{url}}api/v2/hosts/?search={{ ansible_default_ipv4.address }}"
-       method: GET
-       body_format: json
-       validate_certs: false
-       headers:
-         Authorization: Bearer {{token}}
-       status_code: [200]
-       return_content: yes
-      register: host_inv
-
-    - name: Rename Ansible-AWX host
-      uri:
-       url: "{{url}}{{ host_inv.json.results[0].url }}"
-       method: PATCH
-       body_format: json
-       validate_certs: false
-       headers:
-         Authorization: Bearer {{token}}
-       body:
-         name: "{{ ansible_fqdn }}"
-         description: "{{ansible_distribution}} {{ansible_distribution_major_version}}"
-       status_code: [200]
-      register: result
-      when:
-        - 'ansible_fqdn is not match("ip-10.*")'
-        -  host_inv.json.results[0].url != ""
-
-    - debug: 
-        msg: "{{ ansible_fqdn }} - {{ansible_distribution}}{{ansible_distribution_major_version}}"
-      
-
-    - name: Disable Old Zabbix Agent
-      service:
-        name: "{{ item }}"
-        enabled: no
-        state: stopped
-      with_items:
-      - zabbix-agent
-      ignore_errors: yes # i could add a whole task that checks the list of installed services, then follow-up with another task that only runs when zabbix-agent is among those services.
-      #this is simpler
