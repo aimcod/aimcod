@@ -157,7 +157,7 @@
         
           - name: Generate K8s Token
             uri:
-              url: https://ansible-lower.chnla.com/api/v2/job_templates/12/callback/
+              url: https://ansible.aimcorp.co.uk/api/v2/job_templates/12/callback/
               method: POST
               validate_certs: false
               body_format: json
