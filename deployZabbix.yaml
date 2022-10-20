@@ -48,7 +48,7 @@
         - '"warning" not in repoState.stderr'
         - '"listed more than once" not in repoState.stderr'
         - repoState.stderr != ""        
-      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "9" || ansible_distribution_major_version == "36"
+      when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "9" or ansible_distribution_major_version == "36"
       ignore_errors: yes
     
     - name: Update packages
