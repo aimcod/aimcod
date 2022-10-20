@@ -1,0 +1,142 @@
+---
+- hosts: Workers
+  become: true
+  become_method: sudo
+  ignore_unreachable: yes
+  tasks:
+
+
+          - name: Wait 600 seconds for target connection to become reachable/usable
+            wait_for_connection:
+
+
+          - name: check if kubelet config is present
+            find:
+                paths: /var/lib/kubelet/
+                patterns: config.yaml
+            register: config_stat
+
+          - name: End the play for hosts are already setup
+            meta: end_host
+            when:
+              - config_stat.matched > 0
+
+          - name: reboot to release the kickstart user from the previous process
+            reboot:
+            
+          - name: Remove kickstart user
+            user:
+              name: kickstartuser
+              state: absent
+              remove: yes
+          
+          - name: install python SELinux dependencies
+            yum:
+                   name:
+                   - python3-libselinux
+                   - python3-policycoreutils
+                   state: present
+
+          - name: Set SELinux to permissive
+            ansible.builtin.lineinfile:
+                   path: /etc/selinux/config
+                   regexp: '^SELINUX='
+                   line: SELINUX=permissive
+
+          - name: Disable firewalld
+            ansible.builtin.service:
+                    name: firewalld
+                    enabled: no
+                    state: stopped
+
+          - name: Disable swap for current session
+            command: swapoff -a
+
+          - name: Disable swap permanently, persist reboots
+            replace:
+                    path: /etc/fstab
+                    regexp: '^(\s*)([^#\n]+\s+)(\w+\s+)swap(\s+.*)$'
+                    replace: '#\1\2\3swap\4'
+                    backup: yes
+
+          - name: Install yum-utils
+            package:
+                    name: yum-utils
+                    state: present
+
+          - name: enable ol8_Addons
+            yum_repository:
+                    name: ol8_addons
+                    description: ol8_addons
+                    baseurl: http://yum.oracle.com/repo/OracleLinux/OL8/addons/x86_64
+                    enabled: yes
+
+          - name: Add Docker repository
+            get_url:
+                    url: https://download.docker.com/linux/centos/docker-ce.repo
+                    dest: /etc/yum.repos.d/docker-ce.repo
+
+          - name: add kubernetes repository
+            yum_repository:
+                    name: kubernetes
+                    description: Kubernaughtiesi :)
+                    baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+                    enabled: 1
+                    gpgcheck: 1
+                    repo_gpgcheck: 1
+                    gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+
+          - name: remove runc
+            package:
+                    name: runc
+                    state: absent
+
+          - name: install docker
+            package:
+                    name: docker-ce
+                    state: present
+
+          - name: Enable docker
+            ansible.builtin.service:
+                    name: docker.service
+                    enabled: yes
+                    state: started
+
+          - name: install kubernetes
+            package:
+                    name:
+                            - kubelet-1.23.6
+                            - kubeadm-1.23.6
+                            - kubectl-1.23.6
+                    state: present
+
+          - name: Enable kubelet
+            ansible.builtin.service:
+                    name: kubelet
+                    enabled: yes
+
+          - name: Update kubelet cgroupDriver to cgroupfs
+            lineinfile:
+                    path: /var/lib/kubelet/config.yaml
+                    regexp: '^cgroupDriver:'
+                    line: 'cgroupDriver: cgroupfs'
+            when: config_stat.matched > 0
+
+          - name: Enabled Containerd CRI Plugin
+            lineinfile:
+              path: /etc/containerd/config.toml
+              regexp: '^disabled_plugins'
+              line: '#disabled_plugins'
+            
+          - name: restart containerd
+            service:
+              name: containerd
+              state: restarted
+          
+#          - name: Run curl to get the last ENV Cluster Install job for next operation
+#   # this thing right here, took no time at all...
+#            shell: "curl -s --insecure -H 'Authorization: bearer xBA1yBz4qps3aWmeG6q6sW7AVLCNgd' -H 'Content-Type: application/json' -X GET 'https://ansible.aimcorp.co.uk/api/v2/jobs/?search=get+k8s+token&page_size=200' | jq -r --arg shorthost \"$(hostname | cut -d'.' -f1 | sed -e 's/worker[0-9]\\{1,\\}$/master*/')\" '.results[] | select(.limit|test($shorthost)) | .id' | tail -n1"
+#            register: result
+
+#          - name: run the join command, using the Join command created by the last cluster deployment
+#            shell:  "`curl -s -H 'Authorization: Bearer xBA1yBz4qps3aWmeG6q6sW7AVLCNgd' -H 'Content-Type: application/json' -X GET https://ansible.aimcorp.co.uk/api/v2/jobs/{{result.stdout}}/stdout/ --insecure | grep 'kubeadm join' | awk '{print $3, $4, $5, $6, $7, $8, $9, $10}' | cut -d';' -f2 | cut -d'&' -f1` --ignore-preflight-errors=all" 
