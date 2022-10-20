@@ -1,0 +1,16 @@
+---
+- name: Upgrade all packages
+  hosts: all
+  tasks:
+    
+    - name: Update all apt packages to their latest version
+      apt:
+        name: "*"
+        state: latest
+      when: "ansible_pkg_mgr": "apt"
+    
+    - name: Update all dnf packages to their latest version
+      dnf:
+        name: "*"
+        state: latest
+      when: "ansible_pkg_mgr": "dnf"
