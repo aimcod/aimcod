@@ -1,0 +1,166 @@
+---
+- hosts: Ansible_Operators
+  become: true
+  become_method: sudo
+  tasks:
+
+
+          - name: Wait 600 seconds for target connection to become reachable/usable
+            wait_for_connection:
+          
+          - name: check if kubernetes is already set
+            find:  
+              paths: /var/lib/kubelet/
+              patterns: config.yaml
+            register: kubeletSet
+
+          - name: End the play for hosts are already setup
+            meta: end_host
+            when:
+              - kubeletSet.matched > 0            
+
+          - name: reboot to release the kickstart user from the previous process
+            reboot:
+
+          - name: Remove kickstart user
+            user:
+              name: kickstartuser
+              state: absent
+              remove: yes
+
+          - name: install python SELinux dependencies
+            yum:
+              name:
+              - python3-libselinux
+              - python3-policycoreutils
+              state: present
+
+          - name: Set SELinux to permissive
+            lineinfile:
+              path: /etc/selinux/config
+              regexp: '^SELINUX='
+              line: SELINUX=permissive
+
+          - name: Disable firewalld
+            service:
+              name: firewalld
+              enabled: no
+              state: stopped
+                    
+          - name: Disable swap for current session
+            command: swapoff -a
+
+          - name: Disable swap permanently, persist reboots
+            replace:
+              path: /etc/fstab
+              regexp: '^(\s*)([^#\n]+\s+)(\w+\s+)swap(\s+.*)$'
+              replace: '#\1\2\3swap\4'
+              backup: yes
+
+          - name: Install yum-utils
+            package:
+              name: yum-utils
+              state: present
+
+          - name: enable ol8_Addons
+            yum_repository:
+              name: ol8_addons
+              description: ol8_addons
+              baseurl: http://yum.oracle.com/repo/OracleLinux/OL8/addons/x86_64
+              enabled: yes
+
+          - name: Add Docker repository
+            get_url:
+              url: https://download.docker.com/linux/centos/docker-ce.repo
+              dest: /etc/yum.repos.d/docker-ce.repo
+
+          - name: add kubernetes repository
+            yum_repository:
+              name: kubernetes
+              description: Kubernaughties :)
+              baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+              enabled: 1
+              gpgcheck: 1
+              repo_gpgcheck: 1
+              gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+
+          - name: remove runc
+            package:
+              name: runc
+              state: absent
+
+          - name: install docker
+            package:
+              name: docker-ce
+              state: present
+
+          - name: Enable docker
+            service:
+              name: docker.service
+              enabled: yes
+              state: started
+
+          - name: install kubernetes
+            package:
+              name:
+                - kubelet-1.23.6
+                - kubeadm-1.23.6
+                - kubectl-1.23.6
+              state: present
+        
+          - name: Enable kubelet
+            service:
+              name: kubelet
+              enabled: yes
+                   
+          - name: Copy the kubeadm-config to the server
+            become: yes
+            become_user: sysadmin
+            copy: src=kubeadm-config.yaml dest=/home/sysadmin/kubeadm-config.yaml
+
+
+          - name: Enabled Containerd CRI Plugin
+            lineinfile:
+              path: /etc/containerd/config.toml
+              regexp: '^disabled_plugins'
+              line: '#disabled_plugins'
+            
+          - name: restart containerd
+            service:
+              name: containerd
+              state: restarted
+
+          - name: initialize the cluster
+            shell: kubeadm init --config /home/sysadmin/kubeadm-config.yaml
+            #ignore_errors: yes
+
+          - name: create .kube directory
+            file:
+              path: /home/sysadmin/.kube
+              state: directory
+              mode: 0755
+
+          - name: copies admin.conf to user's kube config
+            copy:
+              src: /etc/kubernetes/admin.conf
+              dest: /home/sysadmin/.kube/config
+              remote_src: yes
+              owner: sysadmin
+              group: sysadmin
+
+          - name: install Pod network
+            become: yes
+            become_user: sysadmin
+            shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml 
+            args:
+              chdir: /home/sysadmin/
+        
+          - name: Generate K8s Token
+            uri:
+              url: https://ansible-lower.chnla.com/api/v2/job_templates/12/callback/
+              method: POST
+              validate_certs: false
+              body_format: json
+              body:
+                host_config_key: "IHaveNoHostConfigKey"
+              status_code: [201]
