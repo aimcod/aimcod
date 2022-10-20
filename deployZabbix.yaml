@@ -57,7 +57,7 @@
         state: latest
       when: ansible_pkg_mgr ==  "dnf"
       
-     - name: Update packages
+    - name: Update packages
       apt:
         name: "*"
         state: latest
