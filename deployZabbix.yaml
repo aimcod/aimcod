@@ -72,7 +72,7 @@
       when: ansible_pkg_mgr ==  "dnf"
 
     - name: Install Zabbix Agent
-      dnf:
+      apt:
         name: 
           - zabbix-agent2
         state: latest
