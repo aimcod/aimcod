@@ -65,10 +65,18 @@
 
 
     - name: Install Zabbix Agent
-      yum:
+      dnf:
         name: 
           - zabbix-agent2
         state: latest
+      when: ansible_pkg_mgr ==  "dnf"
+
+    - name: Install Zabbix Agent
+      dnf:
+        name: 
+          - zabbix-agent2
+        state: latest
+      when: ansible_pkg_mgr == "apt"
 
     - name: Copy the Zabbix script to target
       copy: 
