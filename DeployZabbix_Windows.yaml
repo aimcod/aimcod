@@ -1,0 +1,163 @@
+---
+- name: Deploy Zabbix on Windows Hosts
+  hosts: AllWindows
+  gather_facts: yes
+  serial: 10
+  tasks:
+
+  - name: Check if old Zabbix Service exists
+    ansible.windows.win_service_info:
+      name: Zabbix-Agent
+    register: old_service_info
+  
+  
+  - name: Uninstall Old Agent First
+    ansible.windows.win_powershell:
+      script: |
+        start-process "C:\Program Files\Zabbix-Agent\zabbix_agentd.exe" -argumentlist ' --config "C:\Program Files\Zabbix-Agent\zabbix_agentd.conf" --uninstall'
+        Stop-Service "*Zabbix"
+    when: old_service_info.exists == true
+
+
+  - name: Get Host ID to Disable from Old Zabbix
+    ansible.windows.win_uri:
+      url: "{{url2}}"
+      method: POST
+      validate_certs: false
+      content_type: application/json
+      body: "{'jsonrpc': '2.0','method': 'host.get','params': {'filter': {'host': ['{{ansible_hostname}}']}},'auth': '{{token2}}','id': 294}"
+      return_content: yes
+    register: hostID
+    when: url2 is defined
+
+  - name: Disable in Old Zabbix
+    ansible.windows.win_uri:
+      url: "{{url2}}"
+      method: POST
+      validate_certs: false
+      content_type: application/json
+      body: "{'jsonrpc': '2.0', 'method': 'host.update','params': {'hostid': '{{hostID.json.result[0].hostid}}', 'status': 1}, 'auth': '{{token2}}', 'id': 294}"
+    when: hostID.json.result[0].hostid is defined and url2 is defined
+
+###Start Block
+
+  - name: Install/Upgrade Zabbix Agent
+    block:
+      - name: Create directory if it does not exist
+        ansible.windows.win_file:
+          path: C:\ZBXInstall_TMP
+          state: directory
+  
+      - name: Copy Zabbix Setup to Target
+        ansible.windows.win_copy:
+          src: ./zabbix_agent-6.2.3-windows-amd64-openssl.msi
+          dest: C:\ZBXInstall_TMP\zabbix_agent-6.2.3-windows-amd64-openssl.msi
+  
+      - name: Get the Zabbix Service Status
+        ansible.windows.win_service_info:
+          name: Zabbix Agent
+        register: service_info
+  
+      - name: Stop Zabbix Service
+        ansible.windows.win_service:
+          name: Zabbix Agent
+          state: Stopped
+        when: service_info.exists == true
+  
+      - name: Install New Zabbix Agent
+        ansible.windows.win_package:
+          path: C:\ZBXInstall_TMP\zabbix_agent-6.2.3-windows-amd64-openssl.msi
+          state: present
+        register: app_state
+#this sometimes does not work so we can also use powershell to deploy, as a backup solution.
+ 
+      - name: Force the install in case the previous step did not run
+        ansible.windows.win_powershell:
+          script: |
+            Start-Process "C:\ZBXInstall_TMP\zabbix_agent-6.2.3-windows-amd64-openssl.msi" -ArgumentList '/quiet'
+        when: app_state.changed == false  
+
+      - name: Set Zabbix Service Recovery
+        ansible.windows.win_service:
+         name: Zabbix Agent
+         failure_actions:
+         - type: restart
+           delay_ms: 1000
+         - type: restart
+           delay_ms: 1000
+         - type: restart
+           delay_ms: 1000
+
+      - name: Start Zabbix Service
+        ansible.windows.win_service:
+          name: Zabbix Agent
+          state: started
+        retries: 3
+        delay: 3
+        register: status
+        until: status.state == "running"
+  
+      - name: Get Currently Installed Agent's Version
+        ansible.windows.win_powershell:
+          script: |
+            (Get-ItemProperty HKLM:SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\* | Where-Object -Property DisplayName -Like "*zabbix*").DisplayVersion
+        register: Version
+        
+      - name: Display new Agent Version!
+        debug:
+          msg: "{{Version.output}}"
+
+###End Block
+
+###Start Block <- just a way to make things more visible in here.
+
+  - name: Check & Update Zabbix Config
+    block: 
+    - name: Check if config contains correct address string - AWS Hosts(10.*)
+      ansible.windows.win_powershell:
+        script: |
+          (Get-Content 'C:\Program Files\zabbix agent\zabbix_agentd.conf').Contains('ServerActive=dev-zbxproxy-03')
+      register: awsconfig
+      when: ansible_interfaces[0].ipv4.address is match("10.*")
+
+    - name: End the play for hosts are already setup - AWS Hosts(10.*)
+      meta: end_host
+      when:
+        - (awsconfig.changed == true and awsconfig.output[0] is defined) and awsconfig.output[0] == true
+
+    - name: Check if config contains correct address string -  xxx hosts(172.*)
+      ansible.windows.win_powershell:
+        script: |
+          (Get-Content 'C:\Program Files\zabbix agent\zabbix_agentd.conf').Contains('ServerActive=dev-zbxproxy-01,dev-zbxproxy-02')
+      register: xxxconfig
+      when: ansible_interfaces[0].ipv4.address is match("172.*")
+
+    - name: End the play for hosts are already setup - xxxhosts(172.*)
+      meta: end_host
+      when:
+        - (xxxconfig.changed == true and xxxconfig.output[0] is defined) and xxxconfig.output[0] == true
+
+    - name: Backup Old Configuration/Copy New Configuration - xxx hosts(172.*)
+      ansible.windows.win_copy:
+        src: ./zabbix_agentd.conf
+        dest: C:\Program Files\Zabbix Agent
+        backup: yes
+      when: ansible_interfaces[0].ipv4.address is match("172.*")
+
+    - name: Backup Old Configuration/Copy New Configuration - AWS hosts(10.*)
+      ansible.windows.win_copy:
+        src: ./zabbix_agentd.conf.awsonly
+        dest: C:\Program Files\Zabbix Agent\zabbix_agentd.conf
+        backup: yes
+      when: ansible_interfaces[0].ipv4.address is match("10.*")
+
+    - name: Restart Zabbix Service
+      ansible.windows.win_service:
+        name: Zabbix Agent
+        state: restarted
+      retries: 3
+      delay: 3
+      register: status
+      until: status.state == "running"
+
+###End Block <- just a way to make things more visible in here.
