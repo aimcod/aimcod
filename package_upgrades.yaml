@@ -7,7 +7,7 @@
     - name: Gathering Facts
       setup:
       register: setup
-      changed_when: "{{setup.msg}}" != ""
+      changed_when: setup.msg != ""
     
     - name: Update all apt packages to their latest version
       apt:
