@@ -7,7 +7,7 @@
     - name: Gathering Facts
       setup:
       register: setup
-      failed_when: '"ballz" in setup.msg'
+      ignore_errors: true
     
     - name: Update all apt packages to their latest version
       apt:
