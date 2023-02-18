@@ -1,7 +1,13 @@
 ---
 - name: Upgrade all packages
   hosts: all
+  gather_facts: no
   tasks:
+    
+    - name: Gathering Facts:
+      setup:
+      register: setup
+      changed_when: "{{setup.msg}}" != ""
     
     - name: Update all apt packages to their latest version
       apt:
