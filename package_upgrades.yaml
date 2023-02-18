@@ -7,7 +7,7 @@
     - name: Gathering Facts
       setup:
       register: setup
-      changed_when: setup.msg != ""
+      failed_when: '"ballz" in setup.msg'
     
     - name: Update all apt packages to their latest version
       apt:
