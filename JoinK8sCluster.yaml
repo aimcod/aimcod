@@ -20,15 +20,6 @@
             meta: end_host
             when:
               - config_stat.matched > 0
-
-          - name: reboot to release the kickstart user from the previous process
-            reboot:
-            
-          - name: Remove kickstart user
-            user:
-              name: kickstartuser
-              state: absent
-              remove: yes
           
           - name: install python SELinux dependencies
             yum:
