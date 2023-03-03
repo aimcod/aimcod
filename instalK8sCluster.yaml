@@ -19,15 +19,6 @@
             when:
               - kubeletSet.matched > 0            
 
-          - name: reboot to release the kickstart user from the previous process
-            reboot:
-
-          - name: Remove kickstart user
-            user:
-              name: kickstartuser
-              state: absent
-              remove: yes
-
           - name: install python SELinux dependencies
             yum:
               name:
@@ -131,29 +122,29 @@
               state: restarted
 
           - name: initialize the cluster
-            shell: kubeadm init --config /home/sysadmin/kubeadm-config.yaml
+            shell: kubeadm init --config /home/user/kubeadm-config.yaml
             #ignore_errors: yes
 
           - name: create .kube directory
             file:
-              path: /home/sysadmin/.kube
+              path: /home/user/.kube
               state: directory
               mode: 0755
 
           - name: copies admin.conf to user's kube config
             copy:
               src: /etc/kubernetes/admin.conf
-              dest: /home/sysadmin/.kube/config
+              dest: /home/user/.kube/config
               remote_src: yes
-              owner: sysadmin
-              group: sysadmin
+              owner: user
+              group: user
 
           - name: install Pod network
             become: yes
-            become_user: sysadmin
+            become_user: user
             shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml 
             args:
-              chdir: /home/sysadmin/
+              chdir: /home/user/
         
           - name: Generate K8s Token
             uri:
