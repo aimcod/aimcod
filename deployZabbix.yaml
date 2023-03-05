@@ -50,7 +50,15 @@
         - repoState.stderr != ""        
       when: ansible_os_family == "RedHat" and ansible_distribution_major_version == "9" or ansible_distribution_major_version == "36"
       ignore_errors: yes
-    
+      
+    - name: clear apt cache
+      shell: rm -rf /var/cache/apt/
+      when: ansible_pkg_mgr == "apt"
+      
+    - name: clear dnf cache
+      shell: rm -rf /var/cache/dnf/
+      when: ansible_pkg_mgr == "dnf"
+      
     - name: Update packages
       dnf:
         name: "*"
