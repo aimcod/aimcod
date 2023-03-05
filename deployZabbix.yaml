@@ -63,12 +63,14 @@
       dnf:
         name: "*"
         state: latest
+        update_cache: yes
       when: ansible_pkg_mgr ==  "dnf"
       
     - name: Update packages
       apt:
         name: "*"
         state: latest
+        update_cache: yes
       when: ansible_pkg_mgr == "apt"
 
 
