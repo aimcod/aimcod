@@ -1,0 +1,167 @@
+---
+- name: AWX Cleanup
+  hosts: awx_controller
+  tasks:
+
+  - name: Run AWX Cleanup script
+    shell: |
+       echo Retrieving Project Update Jobs
+       projectJobs=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET '{{url}}api/v2/projects/69/project_updates/?page_size=3200' | jq '.results[].id' 2>/dev/null`
+       inventoryJobs=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET '{{url}}api/v2/inventory_updates/?page_size=3200' | jq '.results[].id' 2>/dev/null`
+       
+       if [ -z "$projectJobs" ] && [ $? -eq 0 ]
+       
+       
+       then
+               echo No Project Update Jobs found.
+       else
+               for id in $projectJobs
+               do
+                       echo  deleting project update $id
+                       curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/project_updates/$id/
+               done
+       fi
+       if [ -z "$inventoryJobs" ] && [ $? -eq 0 ]
+       
+       
+       then
+               echo No Inventory Update Jobs found.
+       else
+               for id in $inventoryJobs
+               do
+                       echo  deleting inventory update $id
+                       curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/inventory_updates/$id/
+               done
+       fi
+       ###############
+       for i in {1..10}
+       do
+               echo Failed Jobs, Workflows and Commands. Checking page $i...
+       	failedCommands=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET "{{url}}api/v2/ad_hoc_commands/?page_size=3200&page=$i"| jq '.results[] | select(.status|test ("failed")) | .id' 2>/dev/null`
+               failedJobs=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET "{{url}}api/v2/jobs/?page_size=3200&page=$i" | jq '.results[] | select(.status|test ("failed")) | .id' 2>/dev/null`
+       	failedWorkflows=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET "{{url}}api/v2/workflow_jobs/?page_size=3200&page=$i" | jq '.results[] | select(.status|test ("failed")) | .id' 2>/dev/null`
+       	if [ -z "$failedJobs" ] && [ $? -ne 0 ]
+               then
+                       echo Page $i does not have any Failed Jobs. Moving to the next one.
+       
+       	elif [ -z "$failedJobs" ] && [ $? -eq 0 ]
+               then
+                       echo Failed Jobs, page $i clean.
+               else
+                       for id in $failedJobs
+                       do
+                               echo Deleting Failed Job $id
+                               curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/jobs/$id/
+                       done
+               fi
+       	
+       	if [ -z "$failedCommands" ] && [ $? -ne 0 ]
+               then
+                       echo Page $i does not have any Failed Commands. Moving to the next one.
+       
+               elif [ -z "$failedCommands" ] && [ $? -eq 0 ]
+               then
+                       echo Failed Commands, page $i clean.
+               else
+                       for id in $failedCommands
+                       do
+                               echo Deleting Failed Command $id
+                               curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/ad_hoc_commands/$id/
+                       done
+               fi
+       	if [ -z "$failedWorkflows" ] && [ $? -ne 0 ]
+               then
+                       echo Page $i does not have any Failed Workflows. Moving to the next one.
+       
+               elif [ -z "$failedWorkflows" ] && [ $? -eq 0 ]
+               then
+                       echo Failed Workflows, page $i clean.
+               else
+                       for id in $failedWorkflows
+                       do
+                               echo Deleting Failed Workflows $id
+                               curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/workflow_jobs/$id/
+                       done
+               fi
+       done
+       ###############
+       for i in {1..10}
+       do
+               echo Canceled Jobs, Workflows and Commands. Checking page $i
+               canceledCommands=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET "{{url}}api/v2/ad_hoc_commands/?page_size=3200&page=$i"| jq '.results[] | select(.status|test ("canceled")) | .id' 2>/dev/null`
+               canceledJobs=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET "{{url}}api/v2/jobs/?page_size=3200&page=$i" | jq '.results[] | select(.status|test ("canceled")) | .id' 2>/dev/null`
+               canceledWorkflows=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET "{{url}}api/v2/workflow_jobs/?page_size=3200&page=$i" | jq '.results[] | select(.status|test ("canceled")) | .id' 2>/dev/null`
+               if [ -z "$canceledJobs" ] && [ $? -ne 0 ]
+               then
+                       echo Page $i does not have any Canceled Jobs. Moving to the next one.
+       
+               elif [ -z "$canceledJobs" ] && [ $? -eq 0 ]
+               then
+                       echo Canceled Jobs, page $i clean.
+               else
+                       for id in $canceledJobs
+                       do
+                               echo Deleting Canceled Job $id
+                               curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/jobs/$id/
+                       done
+               fi
+       
+               if [ -z "$canceledCommands" ] && [ $? -ne 0 ]
+               then
+                       echo Page $i does not have any Canceled Commands. Moving to the next one.
+       
+               elif [ -z "$canceledCommands" ] && [ $? -eq 0 ]
+               then
+                       echo Canceled Commands, page $i clean.
+               else
+                       for id in $canceledCommands
+                       do
+                               echo Deleting Canceled Command $id
+                               curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/ad_hoc_commands/$id/
+                       done
+               fi
+               if [ -z "$canceledWorkflows" ] && [ $? -ne 0 ]
+               then
+                       echo Page $i does not have any Canceled Workflows. Moving to the next one.
+       
+               elif [ -z "$canceledWorkflows" ] && [ $? -eq 0 ]
+               then
+                       echo Canceled Workflows, page $i clean.
+               else
+                       for id in $canceledWorkflows
+                       do
+                               echo Deleting Canceled Workflows $id
+                               curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/workflow_jobs/$id/
+                       done
+               fi
+       done
+       ###############
+       
+       echo Retrieving Project Update Jobs
+       projectJobs=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET '{{url}}api/v2/projects/69/project_updates/' | jq '.results[].id' 2>/dev/null`
+       inventoryJobs=`curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X GET '{{url}}api/v2/inventory_updates/' | jq '.results[].id' 2>/dev/null`
+       
+       if [ -z "$projectJobs" ] && [ $? -eq 0 ]
+       
+       
+       then
+               echo No Project Update Jobs found.
+       else
+               for id in $projectJobs
+               do
+                       echo  deleting project update $id
+                       curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/project_updates/$id/
+               done
+       fi
+       if [ -z "$inventoryJobs" ] && [ $? -eq 0 ]
+       
+       
+       then
+               echo No Inventory Update Jobs found.
+       else
+               for id in $inventoryJobs
+               do
+                       echo  deleting inventory update $id
+                       curl -k -s -H 'Authorization: bearer {{token}}' -H 'Content-Type: application/json' -X DELETE {{url}}api/v2/inventory_updates/$id/
+               done
+       fi
